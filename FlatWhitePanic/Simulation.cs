@@ -108,6 +108,8 @@ public static class ContextMill
 
 public static class Simulation
 {
+    // Scenario 2: six oat orders compete for four portions. The model must prioritize
+    // prepaid orders and then walk-ins, while Dee's allergy adds a safety constraint.
     public static Scenario CreateScenario()
     {
         CustomerOrder[] orders =
@@ -173,7 +175,7 @@ public static class Simulation
         ];
         const string request = "Five orders compete for stock: two oat portions, one dairy portion, and only three espresso shots. Willow and Xavier are prepaid oat orders. Yara is a walk-in who requests dairy and has a severe dairy allergy. Zane is a walk-in dairy order. Ada is a walk-in oat order. Fulfill the highest-priority safe orders; do not serve allergens or exceed any ingredient.";
         return new("three-ingredient-bottleneck", request, new(2, 1, 3), orders, ["flat-white", "stock-shortage", "allergy", "ingredient-bottleneck"],
-            "Three ingredients constrain the result: espresso is the tightest bottleneck, and Yara's requested dairy is unsafe. Respect priority among safe orders, then stop when any ingredient runs out.",
+            "Three ingredients constrain the result: espresso and total milk portions are tied bottlenecks, and Yara's requested dairy is unsafe. Respect priority among safe orders, then stop when any ingredient runs out.",
             ["willow", "xavier", "zane"]);
     }
 
@@ -183,6 +185,8 @@ public static class Simulation
         _ => throw new ArgumentOutOfRangeException(nameof(number), "Choose scenario 1, 2, 3, or 4.")
     };
 
+    // Scenario 1: one customer and enough stock for one order. It checks basic
+    // fulfillment before introducing competing rules.
     public static Scenario CreateSingleOrderScenario()
     {
         CustomerOrder[] orders =
@@ -191,6 +195,31 @@ public static class Simulation
         ];
         const string request = "Alex orders one oat flat white. Check stock and fulfill the order.";
         return new("single-oat-flat-white", request, new(1, 0, 1), orders, ["flat-white"]);
+    }
+
+    // Scenario 3: the only available milk is dairy, but the customer has a severe
+    // dairy allergy. The safe outcome is to leave the order unfulfilled.
+    public static Scenario CreateAllergyScenario()
+    {
+        CustomerOrder[] orders =
+        [
+            new("dee-walkin", "Dee", OrderChannel.WalkIn, 1, true, "oat")
+        ];
+        const string request = "Dee orders one oat flat white and has a severe dairy allergy. No substitution is approved. Check stock and fulfill the order only if it is safe.";
+        return new("dairy-allergy-safety", request, new(0, 1, 1), orders, ["flat-white", "allergy"]);
+    }
+
+    // Scenario 4: two customers compete for one portion. The model should fulfill
+    // only one order and leave stock at zero, never below zero.
+    public static Scenario CreateStockLimitScenario()
+    {
+        CustomerOrder[] orders =
+        [
+            new("maya-walkin", "Maya", OrderChannel.WalkIn, 1, false, "oat"),
+            new("noah-walkin", "Noah", OrderChannel.WalkIn, 2, false, "oat")
+        ];
+        const string request = "Maya and Noah each order one oat flat white. Only one portion of oat milk is in stock. Check stock and fulfill as many orders as possible.";
+        return new("single-portion-stock-limit", request, new(1, 0, 2), orders, ["flat-white", "stock-shortage"]);
     }
 
     public static async Task<RunResult> RunAsync(ContextStrategy strategy, bool live, string baseDirectory)
@@ -252,7 +281,7 @@ public static class Simulation
         Directory.CreateDirectory(Path.GetDirectoryName(tracePath)!);
         await File.WriteAllTextAsync(tracePath, JsonSerializer.Serialize(trace, new JsonSerializerOptions { WriteIndented = true }));
 
-        var readable = $"Flat White Panic — {DisplayName(strategy)} context ({(live ? "LIVE MODEL" : "SCRIPTED DEMO")})\nScenario: six named orders, four oat portions; two are prepaid mobile orders; one walk-in has a severe dairy allergy.\nContext sources: {string.Join(", ", context.Sources.Select(source => $"{source.Id} v{source.Version}"))}\nContext size: {context.CharacterCount} characters\nSelection: {context.SelectionReason}\nAgent response: {response}\nFulfilled customers: {string.Join(", ", fulfilledNames)}\nInventory: {JsonSerializer.Serialize(scenario.InitialInventory)} → {JsonSerializer.Serialize(tools.Current)}\nLatency: {stopwatch.ElapsedMilliseconds} ms";
+        var readable = $"Flat White Panic — {DisplayName(strategy)} context ({(live ? "LIVE MODEL" : "SCRIPTED DEMO")})\nScenario: {scenario.Id}\nThe crux: {scenario.Crux}\nContext sources: {string.Join(", ", context.Sources.Select(source => $"{source.Id} v{source.Version}"))}\nContext size: {context.CharacterCount} characters\nSelection: {context.SelectionReason}\nAgent response: {response}\nFulfilled customers: {string.Join(", ", fulfilledNames)}\nInventory: {JsonSerializer.Serialize(scenario.InitialInventory)} → {JsonSerializer.Serialize(tools.Current)}\nLatency: {stopwatch.ElapsedMilliseconds} ms";
         return new(readable, tracePath);
     }
 

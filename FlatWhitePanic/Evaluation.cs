@@ -5,8 +5,6 @@ namespace FlatWhitePanic;
 
 public static class Evaluation
 {
-    private static readonly string[] RequiredSelectedSources = ["core-instructions", "stock", "recipes", "allergens", "shortage-policy"];
-    private static readonly string[] IrrelevantSources = ["loyalty", "pastry-promotions"];
     private static readonly string[] ExpectedFulfilledOrders = ["ben-mobile", "eli-mobile", "ava-walkin", "cy-walkin"];
     private static readonly ContextStrategy[] Strategies = [ContextStrategy.Baseline, ContextStrategy.All, ContextStrategy.MillSelected];
 
@@ -101,8 +99,7 @@ public static class Evaluation
             offlineChecks = new
             {
                 baselineIsCoreInstructionsOnly = baselineIds.SequenceEqual(["core-instructions"]),
-                allContainsWholeCatalog = ExpectedAllSources.All(id => allIds.Contains(id, StringComparer.Ordinal))
-                    && allIds.Length == ExpectedAllSources.Length,
+                allContainsWholeCatalog = allIds.SequenceEqual(manifest.Sources.Select(source => source.Id)),
                 selectedContainsExpectedSourcesAndSkipsIrrelevant = sourceSelectionPass,
                 selectedContextSmallerThanAll = packs[ContextStrategy.MillSelected].CharacterCount < packs[ContextStrategy.All].CharacterCount,
                 overstockRejectedWithoutNegativeInventory = overstockWasRejected && InventoryIsNonNegative(overstockTools.Current),

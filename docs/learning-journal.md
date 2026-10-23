@@ -27,3 +27,6 @@ Not yet recorded.
 ### Next questions
 
 How should we control run order, sampling variability, and repeated trials when comparing the three context conditions?
+# Scenario expansion: policy exceptions and interacting constraints
+
+Added three small, named scenarios to create clearer opportunities for context to affect observable tool behavior. Scenario 2 tests a pickup-window exception to mobile-order priority. Scenario 3 tests customer-specific substitution approvals alongside an allergy. Scenario 4 tests safe priority under a shared espresso bottleneck. Each scenario's short “crux” is shown in console output and the eval report. These are hypotheses for future live runs, not evidence of model improvement. Each live scenario uses three calls, one for each context condition.

@@ -55,7 +55,7 @@ public class SimulationTests
     {
         var all = ContextMill.Assemble(ContextStrategy.All, Scenario, ContextRoot);
         var selected = ContextMill.Assemble(ContextStrategy.MillSelected, Scenario, ContextRoot);
-        Assert.Equal(7, all.Sources.Length);
+        Assert.Equal(10, all.Sources.Length);
         Assert.All(selected.Sources, source => Assert.Contains(source.Id, all.Sources.Select(item => item.Id)));
         Assert.True(selected.CharacterCount < all.CharacterCount);
         Assert.Equal(Scenario.InitialInventory, Simulation.CreateScenario().InitialInventory);
