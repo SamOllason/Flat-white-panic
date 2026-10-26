@@ -28,11 +28,11 @@ if (args.FirstOrDefault()?.Equals("eval", StringComparison.OrdinalIgnoreCase) ==
 
 var strategy = args.FirstOrDefault()?.ToLowerInvariant() switch
 {
-    "scenario2" or "scenario3" or "scenario4" => ContextStrategy.MillSelected,
+    "scenario2" or "scenario3" or "scenario4" => ContextStrategy.TagSelected,
     "baseline" => ContextStrategy.Baseline,
     "all" => ContextStrategy.All,
-    "selected" => ContextStrategy.MillSelected,
-    _ => ContextStrategy.MillSelected
+    "selected" => ContextStrategy.TagSelected,
+    _ => ContextStrategy.TagSelected
 };
 
 var live = args.Contains("--live", StringComparer.OrdinalIgnoreCase);

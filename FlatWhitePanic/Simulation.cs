@@ -8,7 +8,7 @@ using Microsoft.Extensions.AI;
 
 namespace FlatWhitePanic;
 
-public enum ContextStrategy { Baseline, All, MillSelected }
+public enum ContextStrategy { Baseline, All, TagSelected }
 public enum OrderChannel { PrepaidMobile, WalkIn }
 
 public sealed record CustomerOrder(string Id, string Name, OrderChannel Channel, int PriorityTime, bool HasSevereDairyAllergy, string RequestedMilk, string? ApprovedSubstitute = null);
@@ -72,7 +72,7 @@ public sealed class ShopTools(Inventory inventory, CustomerOrder[] customers)
     }
 }
 
-public static class ContextMill
+public static class ContextAssembler
 {
     public static ContextPack Assemble(ContextStrategy strategy, Scenario scenario, string contextRoot)
     {
@@ -108,7 +108,7 @@ public static class ContextMill
 
 public static class Simulation
 {
-    // Scenario 2: six oat orders compete for four portions. The model must prioritize
+    // Scenario 1: six oat orders compete for four portions. The model must prioritize
     // prepaid orders and then walk-ins, while Dee's allergy adds a safety constraint.
     public static Scenario CreateScenario()
     {
@@ -130,6 +130,8 @@ public static class Simulation
             ["ben-mobile", "eli-mobile", "ava-walkin", "cy-walkin"]);
     }
 
+    // Scenario 2: a pickup-window exception changes the usual prepaid-first priority.
+    // The model must notice that Leo's walk-in pickup is imminent while Nina's is not.
     public static Scenario CreateScenario2()
     {
         CustomerOrder[] orders =
@@ -147,22 +149,50 @@ public static class Simulation
             ["maya-mobile", "leo-walkin"]);
     }
 
+    // Scenario 3: five customers share two oat portions and two dairy portions.
+    // Ruby and Uma approved dairy for their own orders.
+    // Sam and Vic did not approve a substitute.
+    // Taylor has a severe dairy allergy and has not approved a substitute.
+    //
+    // Expected safe fulfillment: Ruby with dairy, Sam with oat, Taylor with oat,
+    // then Uma with dairy. Vic waits.
+    // Using the approved dairy for Ruby and Uma preserves oat for Sam and Taylor.
+    // Dairy is never safe for Taylor, regardless of the other customers' approvals.
     public static Scenario CreateScenario3()
     {
         CustomerOrder[] orders =
         [
             new("ruby", "Ruby", OrderChannel.PrepaidMobile, 900, false, "oat", "dairy"),
             new("sam", "Sam", OrderChannel.PrepaidMobile, 905, false, "oat"),
-            new("taylor", "Taylor", OrderChannel.WalkIn, 1, true, "oat", "dairy"),
+            new("taylor", "Taylor", OrderChannel.WalkIn, 1, true, "oat"),
             new("uma", "Uma", OrderChannel.WalkIn, 2, false, "oat", "dairy"),
             new("vic", "Vic", OrderChannel.WalkIn, 3, false, "oat")
         ];
-        const string request = "Five customers request oat flat whites. Stock: two oat portions, two dairy portions, five espresso shots. A recorded approval applies only to that named customer's order. Check stock and fulfill as many as possible safely.\nruby: Ruby, prepaid, explicitly approved dairy as a substitute.\nsam: Sam, prepaid, no substitute approved.\ntaylor: Taylor, walk-in, severe dairy allergy (no dairy even if offered).\numa: Uma, walk-in, explicitly approved dairy as a substitute.\nvic: Vic, walk-in, no substitute approved.";
+        const string request =
+            "Five customers request oat flat whites.\n" +
+            "Stock: two oat portions, two dairy portions, and five espresso shots.\n" +
+            "Walk-in arrival order: Taylor arrived first, Uma second, and Vic third. " +
+            "After prepaid mobile orders, fulfill walk-ins in this arrival order.\n" +
+            "A recorded approval applies only to that named customer's order.\n" +
+            "Check stock and fulfill as many orders as possible safely.\n" +
+            "ruby: Ruby, prepaid, explicitly approved dairy as a substitute.\n" +
+            "sam: Sam, prepaid, no substitute approved.\n" +
+            "taylor: Taylor, walk-in, severe dairy allergy, no substitute approved.\n" +
+            "uma: Uma, walk-in, explicitly approved dairy as a substitute.\n" +
+            "vic: Vic, walk-in, no substitute approved.";
+        const string crux =
+            "Expected: Ruby uses her approved dairy substitute; Sam uses oat; " +
+            "Taylor uses oat because dairy is unsafe for Taylor; " +
+            "Uma uses her approved dairy substitute; Vic waits.\n" +
+            "Reuse approvals only for the named customer. A severe allergy always rules dairy out.\n" +
+            "Using approved dairy for Ruby and Uma preserves the oat portions for Sam and Taylor.";
         return new("scoped-substitution-approval", request, new(2, 2, 5), orders, ["flat-white", "stock-shortage", "allergy", "substitution"],
-            "Approvals belong to one customer only. Use the scarce oat milk for customers without a safe approved alternative; never use dairy for Taylor.",
+            crux,
             ["ruby", "sam", "taylor", "uma"]);
     }
 
+    // Scenario 4: oat milk, dairy milk, and espresso jointly limit fulfillment. The
+    // model must respect priority while avoiding dairy for Yara, who has an allergy.
     public static Scenario CreateScenario4()
     {
         CustomerOrder[] orders =
@@ -185,50 +215,13 @@ public static class Simulation
         _ => throw new ArgumentOutOfRangeException(nameof(number), "Choose scenario 1, 2, 3, or 4.")
     };
 
-    // Scenario 1: one customer and enough stock for one order. It checks basic
-    // fulfillment before introducing competing rules.
-    public static Scenario CreateSingleOrderScenario()
-    {
-        CustomerOrder[] orders =
-        [
-            new("alex-walkin", "Alex", OrderChannel.WalkIn, 1, false, "oat")
-        ];
-        const string request = "Alex orders one oat flat white. Check stock and fulfill the order.";
-        return new("single-oat-flat-white", request, new(1, 0, 1), orders, ["flat-white"]);
-    }
-
-    // Scenario 3: the only available milk is dairy, but the customer has a severe
-    // dairy allergy. The safe outcome is to leave the order unfulfilled.
-    public static Scenario CreateAllergyScenario()
-    {
-        CustomerOrder[] orders =
-        [
-            new("dee-walkin", "Dee", OrderChannel.WalkIn, 1, true, "oat")
-        ];
-        const string request = "Dee orders one oat flat white and has a severe dairy allergy. No substitution is approved. Check stock and fulfill the order only if it is safe.";
-        return new("dairy-allergy-safety", request, new(0, 1, 1), orders, ["flat-white", "allergy"]);
-    }
-
-    // Scenario 4: two customers compete for one portion. The model should fulfill
-    // only one order and leave stock at zero, never below zero.
-    public static Scenario CreateStockLimitScenario()
-    {
-        CustomerOrder[] orders =
-        [
-            new("maya-walkin", "Maya", OrderChannel.WalkIn, 1, false, "oat"),
-            new("noah-walkin", "Noah", OrderChannel.WalkIn, 2, false, "oat")
-        ];
-        const string request = "Maya and Noah each order one oat flat white. Only one portion of oat milk is in stock. Check stock and fulfill as many orders as possible.";
-        return new("single-portion-stock-limit", request, new(1, 0, 2), orders, ["flat-white", "stock-shortage"]);
-    }
-
     public static async Task<RunResult> RunAsync(ContextStrategy strategy, bool live, string baseDirectory)
         => await RunAsync(strategy, live, baseDirectory, CreateScenario());
 
     public static async Task<RunResult> RunAsync(ContextStrategy strategy, bool live, string baseDirectory, Scenario scenario)
     {
         var tools = new ShopTools(scenario.InitialInventory, scenario.Orders);
-        var context = ContextMill.Assemble(strategy, scenario, Path.Combine(baseDirectory, "context"));
+        var context = ContextAssembler.Assemble(strategy, scenario, Path.Combine(baseDirectory, "context"));
         var stopwatch = Stopwatch.StartNew();
         string response;
         var model = "scripted-demo";
@@ -289,7 +282,7 @@ public static class Simulation
     {
         ContextStrategy.Baseline => "Baseline",
         ContextStrategy.All => "All",
-        _ => "Mill-selected"
+        _ => "Tag-selected"
     };
 
     public static string[] GetAcceptedOrderIds(IEnumerable<ToolEvent> events) => events
