@@ -5,7 +5,7 @@ namespace FlatWhitePanic;
 
 public static class Evaluation
 {
-    private static readonly string[] ExpectedFulfilledOrders = ["ben-mobile", "eli-mobile", "ava-walkin", "cy-walkin"];
+    private static readonly string[] ExpectedFulfilledOrders = ["ben-mobile"];
     private static readonly ContextStrategy[] Strategies = [ContextStrategy.Baseline, ContextStrategy.All, ContextStrategy.TagSelected];
 
     // These are the live eval cases: readable setup and expectations beside the checks
@@ -70,15 +70,19 @@ public static class Evaluation
         var overstockTools = new ShopTools(harnessScenario.InitialInventory, harnessScenario.Orders);
         var overstockResults = harnessScenario.Orders.Take(5).Select(order => overstockTools.PlaceOrder(order.Id, "oat")).ToArray();
         var overstockWasRejected = overstockResults.Count(result => result.StartsWith("Rejected:", StringComparison.Ordinal)) == 1;
-        var allergyTools = new ShopTools(harnessScenario.InitialInventory, harnessScenario.Orders);
-        var allergyResult = allergyTools.PlaceOrder("dee-walkin", "dairy");
-        var substitutionResult = allergyTools.PlaceOrder("ava-walkin", "dairy");
+        var allergyScenario = Simulation.CreateScenario4();
+        var allergyTools = new ShopTools(allergyScenario.InitialInventory, allergyScenario.Orders);
+        var allergyResult = allergyTools.PlaceOrder("yara", "dairy");
+        var substitutionScenario = Simulation.CreateScenario3();
+        var substitutionTools = new ShopTools(substitutionScenario.InitialInventory, substitutionScenario.Orders);
+        var substitutionResult = substitutionTools.PlaceOrder("sam", "dairy");
         var hardConstraintsPass = overstockWasRejected
             && overstockTools.Current.OatMilk == 0
             && allergyResult.Contains("severe dairy allergy", StringComparison.OrdinalIgnoreCase)
             && substitutionResult.Contains("not approved", StringComparison.OrdinalIgnoreCase)
             && InventoryIsNonNegative(overstockTools.Current)
-            && allergyTools.Current == harnessScenario.InitialInventory;
+            && allergyTools.Current == allergyScenario.InitialInventory
+            && substitutionTools.Current == substitutionScenario.InitialInventory;
 
         var report = new
         {
@@ -290,7 +294,9 @@ public static class Evaluation
                 final.GetProperty("DairyMilk").GetInt32(),
                 final.GetProperty("EspressoShots").GetInt32()));
         var expectedIds = scenario.ExpectedFulfilledOrderIds ?? [];
-        var caseResults = LiveEvalCases.Select(evalCase => new
+        var applicableCases = LiveEvalCases.Where(evalCase =>
+            scenario.Id != "one-oat-portion" || evalCase.Name != "Avoid unsafe or unapproved substitutions");
+        var caseResults = applicableCases.Select(evalCase => new
         {
             name = evalCase.Name,
             given = scenario.CustomerRequest,

@@ -1,2 +1,2 @@
-Version: 1
-Initial stock: 4 units oat milk, 8 units dairy milk, and 12 espresso shots. Six flat whites are requested.
+Version: 2
+Use the inventory tool as the source of truth for current stock. Each flat white consumes one portion of the selected milk and one espresso shot. Do not assume fixed starting quantities; use the stock supplied for the current scenario.

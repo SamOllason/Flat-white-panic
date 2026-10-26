@@ -20,32 +20,34 @@ public class SimulationTests
     [Fact]
     public void AllergenCannotBeBypassedBySubstitution()
     {
-        var tools = new ShopTools(Scenario.InitialInventory, Scenario.Orders);
-        Assert.Contains("severe dairy allergy", tools.PlaceOrder("dee-walkin", "dairy"));
-        Assert.Equal(8, tools.Current.DairyMilk);
+        var allergyScenario = Simulation.CreateScenario4();
+        var tools = new ShopTools(allergyScenario.InitialInventory, allergyScenario.Orders);
+        Assert.Contains("severe dairy allergy", tools.PlaceOrder("yara", "dairy"));
+        Assert.Equal(1, tools.Current.DairyMilk);
     }
 
     [Fact]
     public void UnapprovedSubstitutionIsRejected()
     {
-        var tools = new ShopTools(Scenario.InitialInventory, Scenario.Orders);
-        Assert.Contains("not approved", tools.PlaceOrder("ava-walkin", "dairy"));
-        Assert.Equal(8, tools.Current.DairyMilk);
+        var substitutionScenario = Simulation.CreateScenario3();
+        var tools = new ShopTools(substitutionScenario.InitialInventory, substitutionScenario.Orders);
+        Assert.Contains("not approved", tools.PlaceOrder("sam", "dairy"));
+        Assert.Equal(2, tools.Current.DairyMilk);
     }
 
     [Fact]
     public void BaselineIncludesOnlyCoreInstructions()
     {
-        var baseline = ContextMill.Assemble(ContextStrategy.Baseline, Scenario, ContextRoot);
+        var baseline = ContextAssembler.Assemble(ContextStrategy.Baseline, Scenario, ContextRoot);
         Assert.Equal(new[] { "core-instructions" }, baseline.Sources.Select(source => source.Id));
     }
 
     [Fact]
-    public void MillSelectsPolicyAndRelevantSourcesButSkipsUnrelatedSources()
+    public void TagSelectionIncludesRelevantSourcesAndSkipsUnrelatedSources()
     {
-        var selected = ContextMill.Assemble(ContextStrategy.MillSelected, Scenario, ContextRoot);
+        var selected = ContextAssembler.Assemble(ContextStrategy.TagSelected, Scenario, ContextRoot);
         var sourceIds = selected.Sources.Select(source => source.Id).ToArray();
-        Assert.Equal(new[] { "core-instructions", "stock", "recipes", "allergens", "shortage-policy" }, sourceIds);
+        Assert.Equal(new[] { "core-instructions", "stock", "recipes", "shortage-policy" }, sourceIds);
         Assert.DoesNotContain("loyalty", sourceIds);
         Assert.DoesNotContain("pastry-promotions", sourceIds);
     }
@@ -53,8 +55,8 @@ public class SimulationTests
     [Fact]
     public void AllContextContainsSelectedSourcesAndUnrelatedSources()
     {
-        var all = ContextMill.Assemble(ContextStrategy.All, Scenario, ContextRoot);
-        var selected = ContextMill.Assemble(ContextStrategy.MillSelected, Scenario, ContextRoot);
+        var all = ContextAssembler.Assemble(ContextStrategy.All, Scenario, ContextRoot);
+        var selected = ContextAssembler.Assemble(ContextStrategy.TagSelected, Scenario, ContextRoot);
         Assert.Equal(10, all.Sources.Length);
         Assert.All(selected.Sources, source => Assert.Contains(source.Id, all.Sources.Select(item => item.Id)));
         Assert.True(selected.CharacterCount < all.CharacterCount);
@@ -64,7 +66,7 @@ public class SimulationTests
     [Fact]
     public async Task DemoTraceRecordsContextAndToolEvents()
     {
-        var result = await Simulation.RunAsync(ContextStrategy.MillSelected, false, AppContext.BaseDirectory);
+        var result = await Simulation.RunAsync(ContextStrategy.TagSelected, false, AppContext.BaseDirectory);
         var json = await File.ReadAllTextAsync(result.TracePath);
         Assert.Contains("contextSelectionReason", json);
         Assert.Contains("shortage-policy", json);

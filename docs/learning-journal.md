@@ -1,34 +1,27 @@
 # Learning journal
 
-### Experiment
+### Main experiment: one remaining oat flat white
 
-Compare three fixed context conditions for the Great Oat Milk Shortage: core instructions only (Baseline), the full context catalog (All), and a deterministic manifest/tag-selected set. The shortage policy prioritizes prepaid mobile orders, then walk-ins by arrival.
+Two customers need oat flat whites. Ava arrived first as a walk-in; Ben placed a prepaid mobile order a few minutes later. Only one oat portion remains. The customer request provides these facts and asks the agent to choose which order has priority, but does not state the shop's policy. The shortage-policy context says prepaid orders come first.
 
-Scope distinction: the application assembles each pack before execution and supplies it as agent instructions. The agent does not retrieve context dynamically. This experiment studies the effect of different supplied context, not a context mill or retrieval system.
+Compare three fixed context conditions: Baseline (core instructions only), All (the full catalog), and Tag-selected (the relevant shortage policy and essential instructions). The app assembles each pack before execution; the agent does not retrieve context dynamically.
 
 ### Hypothesis
 
-Baseline may not allocate scarce stock according to the shop's prepaid-first policy. All and Tag-selected should follow that policy. Tag-selected should use less context than All while preserving the expected outcomes. Offline harness checks cannot verify model behavior; repeated live model runs are needed for that.
+The prepaid-first policy should make Ben more likely to receive the last oat flat white. Tag-selected should provide that rule with less context than All. If Baseline also chooses Ben, this scenario has not shown a difference; record that result honestly and consider repeated runs.
 
-### Change
+### Evaluation
 
-Initial setup: all three conditions share the same request, tools, scenario, inventory, and model configuration. The context assembler reads a versioned manifest and applies an exact scenario-tag match to select Markdown sources before the run. A deterministic offline eval checks source selection, context size, inventory bounds, allergy rejection, and substitution approval.
+The live behavior check records which order the agent actually fulfills using the tool. It checks that Ben is selected under the stated shop policy and that inventory does not go negative. Offline harness checks separately verify context source selection, context size, and deterministic tool guardrails. A live pass or failure is an observation from a model run, not a unit test of implementation correctness or proof of general model quality.
 
-### Observations
+### Earlier exploratory scenarios
 
-Not yet recorded.
+The previous versions explored a pickup-window exception, customer-specific dairy approvals plus an allergy, and a multiple-ingredient bottleneck. They remain available as follow-up scenarios, but are more complex than needed to introduce the basic learning point.
 
-### Evidence
+### Evidence boundary
 
-Offline eval results validate context assembly and deterministic tool rules only, not model behavior or the prepaid-first decision. Live model behavior is recorded separately in the per-scenario trace reports; these small pilots are observations, not evidence of general improvement.
-
-### Lessons
-
-Not yet recorded.
+The context is tiny compared with a model's context window. This experiment asks whether a relevant business rule changes an observable action—not whether a context mill improves token cost or scales to production. The selector is deterministic and runs before the agent call.
 
 ### Next questions
 
-How should we control run order, sampling variability, and repeated trials when comparing the three context conditions?
-# Scenario expansion: policy exceptions and interacting constraints
-
-Added three small, named scenarios to create clearer opportunities for context to affect observable tool behavior. Scenario 2 tests a pickup-window exception to mobile-order priority. Scenario 3 tests customer-specific substitution approvals alongside an allergy. Scenario 4 tests safe priority under a shared espresso bottleneck. Each scenario's short “crux” is shown in console output and the eval report. These are hypotheses for future live runs, not evidence of model improvement. Each live scenario uses three calls, one for each context condition.
+Do repeated runs show a consistent difference between Baseline, All, and Tag-selected? If they do, how many runs are needed to distinguish an effect from model variability?

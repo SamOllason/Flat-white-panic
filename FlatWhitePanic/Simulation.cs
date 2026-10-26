@@ -108,26 +108,21 @@ public static class ContextAssembler
 
 public static class Simulation
 {
-    // Scenario 1: six oat orders compete for four portions. The model must prioritize
-    // prepaid orders and then walk-ins, while Dee's allergy adds a safety constraint.
+    // Main learning scenario: two oat orders compete for one portion. The request gives
+    // the facts but leaves the shop's prepaid-first policy to the supplied context.
     public static Scenario CreateScenario()
     {
         CustomerOrder[] orders =
         [
-            new("ava-walkin", "Ava", OrderChannel.WalkIn, 1, false, "oat"),
-            new("ben-mobile", "Ben", OrderChannel.PrepaidMobile, 805, false, "oat"),
-            new("cy-walkin", "Cy", OrderChannel.WalkIn, 2, false, "oat"),
-            new("dee-walkin", "Dee", OrderChannel.WalkIn, 3, true, "oat"),
-            new("eli-mobile", "Eli", OrderChannel.PrepaidMobile, 810, false, "oat"),
-            new("finn-walkin", "Finn", OrderChannel.WalkIn, 4, false, "oat")
+            new("ava-walkin", "Ava", OrderChannel.WalkIn, 850, false, "oat"),
+            new("ben-mobile", "Ben", OrderChannel.PrepaidMobile, 853, false, "oat")
         ];
-        var ordersText = string.Join("\n", orders.Select(order => order.Channel == OrderChannel.PrepaidMobile
-            ? $"- {order.Id}: {order.Name}, prepaid mobile order placed at 08:{order.PriorityTime % 100:00}, requests one oat flat white."
-            : $"- {order.Id}: {order.Name}, walk-in arrival sequence {order.PriorityTime}{(order.HasSevereDairyAllergy ? ", severe dairy allergy" : "")}, requests one oat flat white."));
-        var request = "Six customers each request one oat flat white. No customer has approved a milk substitution.\n" + ordersText + "\nCheck stock and fulfill as many orders as possible safely.";
-        return new("great-oat-milk-shortage", request, new(4, 8, 12), orders, ["flat-white", "stock-shortage", "allergy"],
-            "Four oat portions, six orders. Prepaid orders rank ahead of walk-ins; Dee's allergy makes dairy unsafe.",
-            ["ben-mobile", "eli-mobile", "ava-walkin", "cy-walkin"]);
+        const string request = "Two customers each request one oat flat white. There is one oat portion and two espresso shots in stock. " +
+            "Ava arrived first as a walk-in at 08:50. Ben placed a prepaid mobile order at 08:53. " +
+            "Check stock, fulfill the order with higher shop priority, and explain who must wait.";
+        return new("one-oat-portion", request, new(1, 0, 2), orders, ["flat-white", "stock-shortage"],
+            "Only one oat flat white can be made. Ava arrived first, but Ben paid for a mobile order later. The request gives those facts, not the shop's tie-break rule. The shortage policy says prepaid orders go first, so Ben should get the drink.",
+            ["ben-mobile"]);
     }
 
     // Scenario 2: a pickup-window exception changes the usual prepaid-first priority.
