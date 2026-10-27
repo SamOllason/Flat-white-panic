@@ -17,7 +17,7 @@ I brewed up a small coffee-themed project to make context engineering tangible: 
 
 And, like with any new software, its fun to try and understand what it doe by trying to find its limit and breaking it!
 
-I worked with Codex incrementally, looking for the smallest scenario change that could make Baseline choose incorrectly while the right context supplied the answer. The broader hypothesis is that context can influence a decision even with a relatively powerful model. These small pilots explore that idea; they do not prove it.
+I worked with Codex incrementally, looking for the smallest scenario change that could make Baseline choose incorrectly while the right context supplied the answer. The broader hypothesis is that context can influence a decision even with a relatively powerful model. These small pilots explore that idea but they do not prove it.
 
 I built a tiny .NET console app with the Microsoft Agent Framework. Its agent can check stock and fulfill orders. The app assembles context before each run; the agent does not search for or fetch context dynamically (like what Posthog do), so this is a simple context-selection experiment rather than a context mill. I used gpt-5-mini for each run, deployed through Microsoft Foundry.
 
