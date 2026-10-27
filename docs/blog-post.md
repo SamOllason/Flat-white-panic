@@ -31,7 +31,7 @@ Each scenario gives the agent the customer and stock facts in a prompt. The prom
 | **All** | The full context catalog, including unrelated loyalty and pastry notes. |
 | **Curated** | Core instructions plus the relevant shortage rule for the scenario. |
 
-“Curated” describes the result—the relevant context is assembled for the task—not the selection method. In this prototype, application code uses manifest tags to choose sources deterministically. A context mill could curate dynamically, as PostHog’s does; this agent does not fetch context at runtime.
+“Curated” describes the result: the relevant context is assembled for the task—not the selection method. In this prototype, application code uses manifest tags to choose sources deterministically. A context mill could curate dynamically, as PostHog’s does; this agent does not fetch context at runtime.
 
 The prompt, stock, and tools stay fixed within each scenario. Only the extra context changes.
 
