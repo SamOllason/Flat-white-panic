@@ -5,68 +5,37 @@ date: 2026-10-23
 categories: [AI, Azure, Foundry, Context Engineering]
 ---
 
-I like exploring new technology, and I have been trying to make time for small projects that let me spend five or six hours getting hands-on with one idea. Lately, that idea has been context engineering: how the information we give an AI application shapes what it does.
+# Introduction
+I've been reading about 'context engineering' and wanted to understand it better.
 
-I came across [PostHog's description of its context mill](https://posthog.com/newsletter/context-engineering), which packages maintained knowledge into skills that its agent can choose from at runtime. It made me wonder how much difference context selection could make in a much smaller, more inspectable example.
+TL;DR: In one small, deliberately contrived but very minimal coffee-themed example, adding a shop rule to the context changed the model’s choice. Which was interesting!
 
-I chose a subject I care deeply about: oat flat whites. Every software developer has, at some point, dreamed of running a coffee shop. This project let me try that out sitting at home, without the early starts or the milk delivery problem.
+(Keep an eye out for a few really bad coffee jokes. I've _blended_ them into the serious analysis 😉.)
 
-## A quick vocabulary primer
+# What I did
+I brewed up a small coffee-themed project to make context engineering tangible: does giving an agent a relevant business rule change what it does? I took inspiration from [PostHog's context mill](https://posthog.com/newsletter/context-engineering), which _dynamically_ assembles maintained knowledge for its agents at runtime.
 
-An **agent** is an AI application that can use a language model (e.g. an LLM) and tools. The model interprets the request and decides what to do (the 'brain'). Tools let the application interact with the world (the 'limbs and fingers'), such as checking stock or placing an order.
+And, like with any new software, its fun to try and understand what it doe by trying to find its limit and breaking it!
 
-**Context** is the information supplied to the model for a 'turn'. It can include the user's request, previous messages, tool results, instructions, and relevant material from external sources (e.g. via retrieval-augmented generation, or RAG). Context engineering is the work of deciding what information to provide the model and how to organize it more efficiently.
+I worked with Codex incrementally, looking for the smallest scenario change that could make Baseline choose incorrectly while the right context supplied the answer. The broader hypothesis is that context can influence a decision even with a relatively powerful model. These small pilots explore that idea; they do not prove it.
 
-An **evaluation**, or eval, checks whether an AI application behaves as expected. It is like a unit test in conventional software, but model behavior can vary between runs, so an eval needs to account for observable behavior and uncertainty.
+I built a tiny .NET console app with the Microsoft Agent Framework. Its agent can check stock and fulfill orders. The app assembles context before each run; the agent does not search for or fetch context dynamically (like what Posthog do), so this is a simple context-selection experiment rather than a context mill. I used gpt-5-mini for each run, deployed through Microsoft Foundry.
 
-A **context mill** is one approach to selecting and assembling context for an agent. This is where an agent dynamically asks 'what context do I need for this turn?'. PostHog's system was the inspiration, but this project does not implement a context mill: its selector is deterministic, and it assembles context before the agent runs.
+## What changes between runs?
 
-Why care about context engineering? A model can only process a finite amount of context, and relevant information can matter to the decision. In this experiment, the context was *tiny* compared with the model's context window, so the question was not whether we could squeeze it in. It was whether supplying the right policy would change the model's observable choices.
+Each scenario gives the agent the customer and stock facts in a prompt. The prompt does not give the shop’s priority rule. The same task is run with three context conditions:
 
-## The experiment: Flat White Panic!
+| Condition | Context supplied to the agent |
+|---|---|
+| **Baseline** | Core instructions; no shop-specific priority rule. |
+| **All** | The full context catalog, including unrelated loyalty and pastry notes. |
+| **Curated** | Core instructions plus the relevant shortage rule for the scenario. |
 
-I worked with Codex (after moving back from Claude Code...) to build a small .NET 10 console application using the Microsoft Agent Framework. The agent has tools to inspect and update shop inventory. The app can run a scripted, offline demonstration or, more interestingly, make a live model call using a model configured through Microsoft Foundry.
+“Curated” describes the result—the relevant context is assembled for the task—not the selection method. In this prototype, application code uses manifest tags to choose sources deterministically. A context mill could curate dynamically, as PostHog’s does; this agent does not fetch context at runtime.
 
-I reduced the main scenario to two customers and one oat portion. Ava arrives first as a walk-in. A few minutes later, Ben places a prepaid mobile order. Both want an oat flat white, but only one can be made. Who should get it?
+The prompt, stock, and tools stay fixed within each scenario. Only the extra context changes.
 
-The request gives the agent the facts—who ordered, when, and what is in stock—but does not state the shop's tie-break rule. That rule lives in a context file: when stock is short, prepaid orders go first. With the rule, Ben gets the coffee; without it, the agent has to guess.
-
-I compare three context conditions using the same scenario and tools:
-
-| Condition | What the agent receives |
-| --- | --- |
-| **Baseline** | Core instructions. Scenario facts, starting inventory, and tool results are still available, but the prepaid-first shop policy is not supplied. |
-| **All** | Every Markdown source in the local context catalog, including material unrelated to the current scenario. |
-| **Tag-selected** | Core instructions plus the shortage policy selected by a deterministic manifest and scenario-tag match. |
-
-The selected pack is assembled by application code before the run and passed as instructions. The agent does not search for, retrieve, or dynamically choose context. 'Tag-selected' is the name used by the experiment; it should not be mistaken for a dynamic context mill.
-
-The hypothesis is deliberately narrow: supplying the prepaid-first rule should make Ben more likely to receive the last coffee. Tag-selected should include that rule without needing to send unrelated catalog notes. If Baseline also chooses Ben, that is still useful: the model may infer the expected policy from the facts, so this particular example would not show a behavioral difference.
-
-## Rules the app enforces
-
-Not every requirement is left to the model. The application validates stock and allergy rules when tools are used: inventory cannot go below zero, an allergic customer cannot be served an unsafe drink, and a dairy substitution requires approval from that specific customer. These are deterministic application rules, not evidence that the model independently understood or remembered them.
-
-This distinction was useful while building the experiment. Model behavior is one thing to evaluate; the safety and consistency of the tools are another. I also had deterministic unit tests for those application-level invariants.
-
-## What I measured
-
-The eval has two different jobs, and keeping them separate matters:
-
-1. **Offline harness checks** verify context assembly, source selection, context size, and deterministic tool rules. These run without a model call.
-2. **Live behavior checks** inspect observable model tool behavior against scenario expectations, such as which order gets the last portion and whether inventory remains safe.
-
-The offline checks confirm that the three context conditions contain the intended sources, that the selected pack is smaller than the full catalog, and that the application rejects invalid tool actions. They do not show that one context makes the model better.
-
-The live runs are small pilots: one model call per context condition for this scenario. The eval checks whether Ben gets the last oat portion and whether inventory stays nonnegative. The separate offline harness checks the allergy and substitution guardrails. It scores behavior we can observe through tool calls; it cannot tell us the model's private reasoning.
-
-**Latest live result:** pending the first run of this simplified scenario.
-
-| Scenario | Baseline | All | Tag-selected |
-| --- | --- | --- | --- |
-| One oat portion: Ava is first in line; Ben is prepaid | Pending | Pending | Pending |
-
-### The coffee queue, at a glance
+## Scenario 1 — Ava places her order first, but Ben’s promised pickup is earlier
 
 **Key:** 🤎 = one espresso shot · ⚪ = one oat milk portion
 
@@ -74,36 +43,68 @@ The live runs are small pilots: one model call per context condition for this sc
 
 *Two espresso shots and one oat portion: enough for one flat white.*
 
-| Customer | Order | Fact the agent receives |
-|---|---|---|
-| Ava | 🤎 + ⚪ | Walk-in; arrived at 08:50 |
-| Ben | 🤎 + ⚪ | Prepaid mobile order; placed at 08:53 |
+| Customer | Order | Order placed | Pickup promised |
+|---|---|---:|---:|
+| Ava | 🤎 + ⚪ | 08:45 | 09:15 |
+| Ben | 🤎 + ⚪ | 08:50 | 09:00 |
 
-The expected choice comes from a shop rule, not the timestamps: **prepaid orders take priority over walk-ins during a shortage.** So Ben gets the one oat flat white, and Ava waits. The timestamps and stock are facts in the request; the priority rule is the context we vary.
+**Expected:** Ben gets the coffee because his pickup promise is earlier.
 
-That distinction is the learning point. Baseline is not missing the order details—it is missing the shop's policy. All and Tag-selected receive that policy, but All also receives unrelated catalog material. The comparison asks whether the specific rule changes the agent's observable choice, and whether tag selection can provide that rule without the extra material.
+**Actual:** ✅ Baseline, All, and Curated all chose Ben.
 
-One run per condition is only a first look. If the conditions differ, repeat runs are needed to see whether the difference is consistent. If all conditions make the same choice, we have not demonstrated an effect in this scenario; we should report that plainly rather than redesign the scoring to force a failure.
+## Scenario 2 — Ben orders later, but Ava’s promised pickup is earlier
 
-The reports and JSON traces record the context supplied, outputs, tool events, validation, state changes, and outcomes. They do not expose private model reasoning, and the trace should not be read as doing so.
+**Key:** 🤎 = one espresso shot · ⚪ = one oat milk portion
 
-## What I learned
+**Shop stock:** 🤎🤎 &nbsp; ⚪
 
-- Context can be an input to agent behavior that we can vary and inspect, even in a small console experiment.
-- Evals help make expectations explicit: what should happen, and which invariants must always hold. They describe what the system should do, not the implementation steps it must use.
-- It is important to label scripted/offline checks separately from live model behavior. Passing a scripted harness is not evidence of model quality.
-- Keeping scenario setup, context assembly, agent execution, and trace reporting distinct made it easier to change the supplied material without rewriting the agent.
-- I learned more about connecting Microsoft Agent Framework tools to a small application—and, yes, I managed to break it along the way.
+*Two espresso shots and one oat portion: enough for one flat white.*
 
-## What this experiment does not show
+| Customer | Order | Order placed | Pickup promised |
+|---|---|---:|---:|
+| Ava | 🤎 + ⚪ | 08:45 | 09:00 |
+| Ben | 🤎 + ⚪ | 08:50 | 09:15 |
 
-This is a small learning project, not a controlled benchmark. The live sample is too small to establish that any context condition improves behavior. The context itself is short, so these runs do not demonstrate a context-window or token-cost benefit at realistic scale. They also do not test dynamic retrieval, a context mill, or generalization to other tasks.
+This mirror checks that the result follows the pickup times instead of always favoring Ben.
 
-## Next steps
+**Expected:** Ava gets the coffee because her pickup promise is earlier.
 
-The next experiment is repeated, paired live runs with stable model settings, to see whether the one-rule result repeats. Later, I can bring back richer cases—pickup exceptions, customer-specific substitutions, allergies, and multiple ingredient shortages—as follow-up experiments once this basic comparison is clear. Dynamic context selection remains a separate future step.
+**Actual:** ✅ Baseline, All, and Curated all chose Ava.
 
-## Final thoughts
+## Scenario 3 — Pickup times tie, so Ben’s reserved slot takes priority
 
-This was a satisfying way to make an abstract idea concrete. I could change the information supplied to the agent, see which sources were selected, and inspect the tool actions that followed. The first lesson is not that one context strategy wins; it is that a useful experiment needs to make its setup and evidence visible—and be honest about what a handful of runs can tell us.
+**Key:** 🤎 = one espresso shot · ⚪ = one oat milk portion
 
+**Shop stock:** 🤎🤎 &nbsp; ⚪
+
+*Two espresso shots and one oat portion: enough for one flat white.*
+
+| Customer | Order | Order placed / queue | Pickup promised |
+|---|---|---:|---:|
+| Ava | 🤎 + ⚪ | Walk-in, 08:45 | 09:00 |
+| Ben | 🤎 + ⚪ | Reserved online, 08:50 | 09:00 |
+
+When pickup times tie, the shop rule gives the reserved slot priority over the walk-in queue. I added this scenario to give Baseline a clear chance to miss a shop-specific rule while All and Curated have it.
+
+**Expected:** Ben gets the coffee because he reserved the pickup slot.
+
+**Actual:** ❌ 😱 Baseline chose Ava; All and Curated chose Ben.
+
+## What the results say
+
+| Scenario | Baseline | All | Curated |
+|---|---|---|---|
+| 1: Ben has earlier pickup | Ben ✅ | Ben ✅ | Ben ✅ |
+| 2: Ava has earlier pickup | Ava ✅ | Ava ✅ | Ava ✅ |
+| 3: Reserved-slot tie-break | Ava — ❌ | Ben — ✅ | Ben — ✅ |
+
+Scenario 3 is a promising first signal that the supplied rule changed the choice. Each result is one model call per condition, so this is a small pilot—not evidence that the difference will repeat or that one context strategy is generally better. Let's not _over-extract_ a conclusion from one run (😉).
+
+The offline harness separately checks context assembly, source selection, context size, and stock enforcement. These checks run without a model and say nothing about model quality. The live eval scores observable tool behavior and inventory; it cannot reveal the model’s private reasoning. The scripted demo only exercises the app’s tools.
+
+The order facts belong in the prompt; the shop rule belongs in context. If the model can infer the rule from the facts, adding context may not change its action. That is still a useful result. 
+
+# Next steps
+
+This project does not test dynamic context retrieval, large context windows, or general model improvement. Repeated runs are the next step to see whether Scenario 3’s result holds true.
+Id also like to add some more coffee-related puns, but I might start to lose my readership if that continues...

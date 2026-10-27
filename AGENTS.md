@@ -1,7 +1,7 @@
 # Project guidance
 
 ## Objective
-Build a small educational coffee-shop simulation for learning context engineering, agent evaluation, and observability. Implement only the current first vertical slice: the Great Oat Milk Shortage console experiment comparing baseline, full-catalog, and manifest-driven, tag-selected context.
+Build a small educational coffee-shop simulation for learning context engineering, agent evaluation, and observability. Implement only the current first vertical slice: the Great Oat Milk Shortage console experiment comparing baseline, full-catalog, and manifest-driven, curated context.
 
 ## Constraints
 - .NET 10, C#, Microsoft Agent Framework, xUnit, JSON and Markdown local context.
@@ -12,7 +12,7 @@ Build a small educational coffee-shop simulation for learning context engineerin
 - Distinguish offline harness checks from live model behavior evaluations. Never claim scripted runs demonstrate model improvement.
 - Offline scripted mode is supported and labelled distinctly from genuine model runs. Never use its output as evidence of model quality.
 - Keep provider settings outside application logic and never hardcode credentials.
-- Validate stock and allergy rules in application code; inventory must never be negative.
+- Validate stock rules in application code; inventory must never be negative.
 - Trace observable inputs, outputs, tool events, validation, state, errors, and outcomes. Never claim private model reasoning is observable; never log secrets.
 - Preserve experimental integrity: record hypotheses and setup, never invent results.
 

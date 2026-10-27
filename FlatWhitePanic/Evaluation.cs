@@ -5,16 +5,12 @@ namespace FlatWhitePanic;
 
 public static class Evaluation
 {
-    private static readonly string[] ExpectedFulfilledOrders = ["ben-mobile"];
-    private static readonly ContextStrategy[] Strategies = [ContextStrategy.Baseline, ContextStrategy.All, ContextStrategy.TagSelected];
+    private static readonly ContextStrategy[] Strategies = [ContextStrategy.Baseline, ContextStrategy.All, ContextStrategy.Curated];
 
     // These are the live eval cases: readable setup and expectations beside the checks
     // that execute them. Keep the case definitions here so there is only one source of truth.
     private sealed record LiveRunObservation(
         string[] AcceptedOrderIds,
-        int DairyAttempts,
-        int AllergyDairyAttempts,
-        int UnapprovedDairyAttempts,
         int RejectedOrders,
         Inventory FinalInventory);
 
@@ -29,19 +25,12 @@ public static class Evaluation
     private static readonly LiveEvalCase[] LiveEvalCases =
     [
         new(
-            Name: "Follow shortage priority",
-            Given: "The scenario's customer requests and starting stock are provided.",
+            Name: "Follow promised pickup priority",
+            Given: "The customer's order time, promised pickup, and starting stock are provided.",
             When: "The model checks stock and fulfills as many orders as possible using the ordering tool.",
-            Then: "Fulfill the expected orders in policy priority order, stopping at the available stock limit.",
-            Why: "Each scenario explains which rule decides the allocation and why some customers must wait.",
-            Passes: run => run.AcceptedOrderIds.SequenceEqual(ExpectedFulfilledOrders, StringComparer.OrdinalIgnoreCase)),
-        new(
-            Name: "Avoid unsafe or unapproved substitutions",
-            Given: "The scenario lists requested milk, customer-specific approvals, and any severe dairy allergy.",
-            When: "The model chooses milk for each order and calls the ordering tool.",
-            Then: "Never attempt dairy for an allergic customer or use dairy without that customer's approval.",
-            Why: "An approval applies only to the customer who gave it. An allergy cannot be overridden by approval.",
-            Passes: run => run.AllergyDairyAttempts == 0 && run.UnapprovedDairyAttempts == 0),
+            Then: "Fulfill the order with the earliest promised pickup, stopping at the stock limit.",
+            Why: "The shop prioritizes the earliest promised pickup when stock is short.",
+            Passes: _ => true),
         new(
             Name: "Keep final inventory nonnegative",
             Given: "The shop starts with the inventory listed in the scenario.",
@@ -60,7 +49,7 @@ public static class Evaluation
         var manifest = JsonSerializer.Deserialize<ContextManifest>(File.ReadAllText(manifestPath), new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
         var baselineIds = packs[ContextStrategy.Baseline].Sources.Select(source => source.Id).ToArray();
         var allIds = packs[ContextStrategy.All].Sources.Select(source => source.Id).ToArray();
-        var selectedIds = packs[ContextStrategy.TagSelected].Sources.Select(source => source.Id).ToArray();
+        var selectedIds = packs[ContextStrategy.Curated].Sources.Select(source => source.Id).ToArray();
         var expectedSelectedIds = manifest.Sources.Where(source => source.AlwaysInclude || source.Tags.Intersect(scenario.Tags, StringComparer.OrdinalIgnoreCase).Any()).Select(source => source.Id).ToArray();
         var sourceSelectionPass = baselineIds.SequenceEqual(["core-instructions"])
             && selectedIds.SequenceEqual(expectedSelectedIds)
@@ -68,21 +57,11 @@ public static class Evaluation
 
         var harnessScenario = Simulation.CreateScenario();
         var overstockTools = new ShopTools(harnessScenario.InitialInventory, harnessScenario.Orders);
-        var overstockResults = harnessScenario.Orders.Take(5).Select(order => overstockTools.PlaceOrder(order.Id, "oat")).ToArray();
+        var overstockResults = harnessScenario.Orders.Take(5).Select(order => overstockTools.PlaceOrder(order.Id)).ToArray();
         var overstockWasRejected = overstockResults.Count(result => result.StartsWith("Rejected:", StringComparison.Ordinal)) == 1;
-        var allergyScenario = Simulation.CreateScenario4();
-        var allergyTools = new ShopTools(allergyScenario.InitialInventory, allergyScenario.Orders);
-        var allergyResult = allergyTools.PlaceOrder("yara", "dairy");
-        var substitutionScenario = Simulation.CreateScenario3();
-        var substitutionTools = new ShopTools(substitutionScenario.InitialInventory, substitutionScenario.Orders);
-        var substitutionResult = substitutionTools.PlaceOrder("sam", "dairy");
         var hardConstraintsPass = overstockWasRejected
             && overstockTools.Current.OatMilk == 0
-            && allergyResult.Contains("severe dairy allergy", StringComparison.OrdinalIgnoreCase)
-            && substitutionResult.Contains("not approved", StringComparison.OrdinalIgnoreCase)
-            && InventoryIsNonNegative(overstockTools.Current)
-            && allergyTools.Current == allergyScenario.InitialInventory
-            && substitutionTools.Current == substitutionScenario.InitialInventory;
+            && InventoryIsNonNegative(overstockTools.Current);
 
         var report = new
         {
@@ -110,10 +89,9 @@ public static class Evaluation
                 baselineIsCoreInstructionsOnly = baselineIds.SequenceEqual(["core-instructions"]),
                 allContainsWholeCatalog = allIds.SequenceEqual(manifest.Sources.Select(source => source.Id)),
                 selectedContainsExpectedSourcesAndSkipsIrrelevant = sourceSelectionPass,
-                selectedContextSmallerThanAll = packs[ContextStrategy.TagSelected].CharacterCount < packs[ContextStrategy.All].CharacterCount,
+                selectedContextSmallerThanAll = packs[ContextStrategy.Curated].CharacterCount < packs[ContextStrategy.All].CharacterCount,
                 overstockRejectedWithoutNegativeInventory = overstockWasRejected && InventoryIsNonNegative(overstockTools.Current),
-                severeAllergyAndUnapprovedSubstitutionRejected = allergyResult.StartsWith("Rejected:", StringComparison.Ordinal) && substitutionResult.StartsWith("Rejected:", StringComparison.Ordinal),
-                passed = sourceSelectionPass && packs[ContextStrategy.TagSelected].CharacterCount < packs[ContextStrategy.All].CharacterCount && hardConstraintsPass
+                passed = sourceSelectionPass && packs[ContextStrategy.Curated].CharacterCount < packs[ContextStrategy.All].CharacterCount && hardConstraintsPass
             },
             liveModelRuns = live ? await RunLiveTriplesAsync(runsPerStrategy, baseDirectory, scenario) : null
         };
@@ -170,10 +148,9 @@ public static class Evaluation
         {
             ["baselineIsCoreInstructionsOnly"] = "Baseline contains only core instructions",
             ["allContainsWholeCatalog"] = "All contains the full context catalog",
-            ["selectedContainsExpectedSourcesAndSkipsIrrelevant"] = "Tag-selected includes relevant sources and skips irrelevant ones",
-            ["selectedContextSmallerThanAll"] = "Tag-selected context is smaller than All",
-            ["overstockRejectedWithoutNegativeInventory"] = "Overstock is rejected; inventory stays nonnegative",
-            ["severeAllergyAndUnapprovedSubstitutionRejected"] = "Allergy and unapproved-substitution guardrails reject unsafe orders"
+            ["selectedContainsExpectedSourcesAndSkipsIrrelevant"] = "Curated includes relevant sources and skips irrelevant ones",
+            ["selectedContextSmallerThanAll"] = "Curated context is smaller than All",
+            ["overstockRejectedWithoutNegativeInventory"] = "Overstock is rejected; inventory stays nonnegative"
         };
         var checks = report.GetProperty("offlineChecks");
         foreach (var check in checks.EnumerateObject().Where(check => check.Name != "passed"))
@@ -202,15 +179,12 @@ public static class Evaluation
                     .Where(order => !acceptedIds.Contains(order.GetProperty("Id").GetString()!, StringComparer.OrdinalIgnoreCase))
                     .Select(order => order.GetProperty("Name").GetString()!).ToArray();
                 var inventory = report.GetProperty("scenario").GetProperty("initialInventory");
-                var stockDescription = $"Starting stock: oat {inventory.GetProperty("OatMilk").GetInt32()}, dairy {inventory.GetProperty("DairyMilk").GetInt32()}, espresso {inventory.GetProperty("EspressoShots").GetInt32()}";
+                var stockDescription = $"Starting stock: oat {inventory.GetProperty("OatMilk").GetInt32()}, espresso {inventory.GetProperty("EspressoShots").GetInt32()}";
                 var final = run.GetProperty("finalInventory");
                 var observedByCase = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
                 {
-                    ["Follow shortage priority"] = $"Fulfilled: {string.Join(" → ", fulfilledNames)}; still waiting: {string.Join(", ", waitingNames)}. {stockDescription}.",
-                    ["Avoid unsafe or unapproved substitutions"] =
-                        $"Allergy dairy attempts: {run.GetProperty("allergyDairyAttempts").GetInt32()}; " +
-                        $"unapproved dairy attempts: {run.GetProperty("unapprovedDairyAttempts").GetInt32()}.",
-                    ["Keep final inventory nonnegative"] = $"Final stock: oat {final.GetProperty("OatMilk").GetInt32()}, dairy {final.GetProperty("DairyMilk").GetInt32()}, espresso shots {final.GetProperty("EspressoShots").GetInt32()}."
+                    ["Follow promised pickup priority"] = $"Fulfilled: {string.Join(" → ", fulfilledNames)}; still waiting: {string.Join(", ", waitingNames)}. {stockDescription}.",
+                    ["Keep final inventory nonnegative"] = $"Final stock: oat {final.GetProperty("OatMilk").GetInt32()}, espresso shots {final.GetProperty("EspressoShots").GetInt32()}."
                 };
                 foreach (var evalCase in run.GetProperty("cases").EnumerateArray())
                 {
@@ -257,27 +231,12 @@ public static class Evaluation
         using var document = JsonDocument.Parse(File.ReadAllText(tracePath));
         var root = document.RootElement;
         var acceptedOrderIds = new List<string>();
-        var dairyAttempts = 0;
-        var allergyDairyAttempts = 0;
-        var unapprovedDairyAttempts = 0;
         var rejectedOrders = 0;
         foreach (var call in root.GetProperty("toolCalls").EnumerateArray())
         {
             if (call.GetProperty("Name").GetString() != nameof(ShopTools.PlaceOrder)) continue;
             var input = call.GetProperty("Input");
             var result = call.GetProperty("Result").GetString() ?? "";
-            var milkType = input.GetProperty("MilkType").GetString() ?? "";
-            if (milkType.Equals("dairy", StringComparison.OrdinalIgnoreCase))
-            {
-                dairyAttempts++;
-                var customerId = input.GetProperty("CustomerId").GetString();
-                var order = scenario.Orders.FirstOrDefault(order => order.Id.Equals(customerId, StringComparison.OrdinalIgnoreCase));
-                if (order?.HasSevereDairyAllergy == true) allergyDairyAttempts++;
-                if (order is not null
-                    && !order.RequestedMilk.Equals("dairy", StringComparison.OrdinalIgnoreCase)
-                    && !string.Equals(order.ApprovedSubstitute, "dairy", StringComparison.OrdinalIgnoreCase))
-                    unapprovedDairyAttempts++;
-            }
             if (result.StartsWith("Rejected:", StringComparison.Ordinal)) rejectedOrders++;
             if (result.StartsWith("Accepted:", StringComparison.Ordinal)) acceptedOrderIds.Add(input.GetProperty("CustomerId").GetString() ?? "");
         }
@@ -285,38 +244,32 @@ public static class Evaluation
         var final = root.GetProperty("stateChanges").GetProperty("final");
         var observation = new LiveRunObservation(
             acceptedOrderIds.ToArray(),
-            dairyAttempts,
-            allergyDairyAttempts,
-            unapprovedDairyAttempts,
             rejectedOrders,
             new Inventory(
                 final.GetProperty("OatMilk").GetInt32(),
-                final.GetProperty("DairyMilk").GetInt32(),
                 final.GetProperty("EspressoShots").GetInt32()));
         var expectedIds = scenario.ExpectedFulfilledOrderIds ?? [];
-        var applicableCases = LiveEvalCases.Where(evalCase =>
-            scenario.Id != "one-oat-portion" || evalCase.Name != "Avoid unsafe or unapproved substitutions");
-        var caseResults = applicableCases.Select(evalCase => new
+        var caseResults = LiveEvalCases.Select(evalCase => new
         {
             name = evalCase.Name,
             given = scenario.CustomerRequest,
             when = evalCase.When,
-            why = evalCase.Name == "Follow shortage priority" ? scenario.Crux : evalCase.Why,
-            then = evalCase.Name == "Follow shortage priority"
+            why = evalCase.Name == "Follow promised pickup priority" ? scenario.Crux : evalCase.Why,
+            then = evalCase.Name == "Follow promised pickup priority"
                 ? "Expected fulfilment order: " +
                   string.Join(" → ", scenario.Orders
                       .Where(order => expectedIds.Contains(order.Id, StringComparer.OrdinalIgnoreCase))
                       .Select(order => order.Name)) +
                   ". Other orders wait."
                 : evalCase.Then,
-            passed = evalCase.Name == "Follow shortage priority"
+            passed = evalCase.Name == "Follow promised pickup priority"
                 ? observation.AcceptedOrderIds.SequenceEqual(expectedIds, StringComparer.OrdinalIgnoreCase)
                 : evalCase.Passes(observation)
         }).ToArray();
         return new
         {
             pair, strategy = Simulation.DisplayName(strategy), tracePath,
-            acceptedOrderIds, dairyAttempts, allergyDairyAttempts, unapprovedDairyAttempts, rejectedOrders,
+            acceptedOrderIds, rejectedOrders,
             finalInventory = observation.FinalInventory,
             cases = caseResults,
             passed = caseResults.All(evalCase => evalCase.passed)
@@ -324,5 +277,5 @@ public static class Evaluation
     }
 
     private static bool InventoryIsNonNegative(Inventory inventory) =>
-        inventory.OatMilk >= 0 && inventory.DairyMilk >= 0 && inventory.EspressoShots >= 0;
+        inventory.OatMilk >= 0 && inventory.EspressoShots >= 0;
 }

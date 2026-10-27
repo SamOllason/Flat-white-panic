@@ -2,6 +2,11 @@ using FlatWhitePanic;
 
 DotEnv.Load(Path.Combine(Environment.CurrentDirectory, ".env"));
 
+var scenarioNumber = args.Contains("scenario3", StringComparer.OrdinalIgnoreCase) ? 3 : args.Contains("scenario2", StringComparer.OrdinalIgnoreCase) ? 2 : 1;
+var scenarioIndex = Array.FindIndex(args, arg => arg.Equals("--scenario", StringComparison.OrdinalIgnoreCase));
+if (scenarioIndex >= 0 && scenarioIndex + 1 < args.Length && int.TryParse(args[scenarioIndex + 1], out var selectedScenarioNumber))
+    scenarioNumber = selectedScenarioNumber;
+
 if (args.FirstOrDefault()?.Equals("eval", StringComparison.OrdinalIgnoreCase) == true)
 {
     var reportIndex = Array.FindIndex(args, arg => arg.Equals("--format-report", StringComparison.OrdinalIgnoreCase));
@@ -14,10 +19,6 @@ if (args.FirstOrDefault()?.Equals("eval", StringComparison.OrdinalIgnoreCase) ==
     }
 
     var evalLive = args.Contains("--live", StringComparer.OrdinalIgnoreCase);
-    var scenarioIndex = Array.FindIndex(args, arg => arg.Equals("--scenario", StringComparison.OrdinalIgnoreCase));
-    var scenarioNumber = scenarioIndex >= 0 && scenarioIndex + 1 < args.Length && int.TryParse(args[scenarioIndex + 1], out var parsedScenario)
-        ? parsedScenario
-        : 1;
     var runsIndex = Array.FindIndex(args, arg => arg.Equals("--runs", StringComparison.OrdinalIgnoreCase));
     var runs = runsIndex >= 0 && runsIndex + 1 < args.Length && int.TryParse(args[runsIndex + 1], out var parsedRuns)
         ? Math.Clamp(parsedRuns, 1, 20)
@@ -28,22 +29,15 @@ if (args.FirstOrDefault()?.Equals("eval", StringComparison.OrdinalIgnoreCase) ==
 
 var strategy = args.FirstOrDefault()?.ToLowerInvariant() switch
 {
-    "scenario2" or "scenario3" or "scenario4" => ContextStrategy.TagSelected,
     "baseline" => ContextStrategy.Baseline,
     "all" => ContextStrategy.All,
-    "selected" => ContextStrategy.TagSelected,
-    _ => ContextStrategy.TagSelected
+    "curated" => ContextStrategy.Curated,
+    _ => ContextStrategy.Curated
 };
 
 var live = args.Contains("--live", StringComparer.OrdinalIgnoreCase);
 var root = AppContext.BaseDirectory;
-var selectedScenario = args.FirstOrDefault()?.ToLowerInvariant() switch
-{
-    "scenario2" => Simulation.CreateScenario2(),
-    "scenario3" => Simulation.CreateScenario3(),
-    "scenario4" => Simulation.CreateScenario4(),
-    _ => Simulation.CreateScenario()
-};
+var selectedScenario = Simulation.CreateScenario(scenarioNumber);
 Console.WriteLine($"THE CRUX: {selectedScenario.Crux}\n");
 var run = await Simulation.RunAsync(strategy, live, root, selectedScenario);
 Console.WriteLine(run.ConsoleTrace);

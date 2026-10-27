@@ -8,14 +8,12 @@ using Microsoft.Extensions.AI;
 
 namespace FlatWhitePanic;
 
-public enum ContextStrategy { Baseline, All, TagSelected }
-public enum OrderChannel { PrepaidMobile, WalkIn }
-
-public sealed record CustomerOrder(string Id, string Name, OrderChannel Channel, int PriorityTime, bool HasSevereDairyAllergy, string RequestedMilk, string? ApprovedSubstitute = null);
+public enum ContextStrategy { Baseline, All, Curated }
+public sealed record CustomerOrder(string Id, string Name, string PlacedAt, string PickupTime);
 public sealed record Scenario(string Id, string CustomerRequest, Inventory InitialInventory, CustomerOrder[] Orders, string[] Tags,
     string Crux = "", string[]? ExpectedFulfilledOrderIds = null);
-public sealed record Inventory(int OatMilk, int DairyMilk, int EspressoShots);
-public sealed record OrderAttempt(string CustomerId, string MilkType);
+public sealed record Inventory(int OatMilk, int EspressoShots);
+public sealed record OrderAttempt(string CustomerId);
 public sealed record ToolEvent(string Name, object Input, object Result);
 public sealed record RunResult(string ConsoleTrace, string TracePath);
 public sealed record ContextSource(string Id, string Path, string Version, string[] Tags, bool AlwaysInclude = false);
@@ -41,30 +39,22 @@ public sealed class ShopTools(Inventory inventory, CustomerOrder[] customers)
         }
     }
 
-    [Description("Fulfill one named customer's existing order. Each flat white consumes one unit of the chosen milk and one espresso shot. Only use dairy if the application has recorded that customer's explicit approval. Never serve dairy to a customer with a severe dairy allergy. Orders exceeding stock or unknown/duplicate orders are rejected.")]
-    public string PlaceOrder([Description("Customer order ID exactly as listed in the request.")] string customerId,
-        [Description("Milk to use: oat or dairy.")] string milkType)
+    [Description("Fulfill one named customer's existing oat flat white order. Each drink consumes one oat portion and one espresso shot. Orders exceeding stock or unknown/duplicate orders are rejected.")]
+    public string PlaceOrder([Description("Customer order ID exactly as listed in the request.")] string customerId)
     {
         lock (gate)
         {
-            var attempt = new OrderAttempt(customerId, milkType);
+            var attempt = new OrderAttempt(customerId);
             string result;
             if (!orders.TryGetValue(customerId, out var order)) result = "Rejected: unknown customer order.";
             else if (fulfilled.Contains(customerId)) result = "Rejected: this customer order was already fulfilled.";
-            else if (!milkType.Equals("oat", StringComparison.OrdinalIgnoreCase) && !milkType.Equals("dairy", StringComparison.OrdinalIgnoreCase)) result = "Rejected: milk type must be oat or dairy.";
-            else if (order.HasSevereDairyAllergy && milkType.Equals("dairy", StringComparison.OrdinalIgnoreCase)) result = "Rejected: this customer has a severe dairy allergy.";
-            else if (!milkType.Equals(order.RequestedMilk, StringComparison.OrdinalIgnoreCase)
-                     && !string.Equals(order.ApprovedSubstitute, milkType, StringComparison.OrdinalIgnoreCase)) result = "Rejected: this customer has not approved that milk substitution.";
-            else if (milkType.Equals("oat", StringComparison.OrdinalIgnoreCase) && Current.OatMilk < 1) result = "Rejected: insufficient oat milk.";
-            else if (milkType.Equals("dairy", StringComparison.OrdinalIgnoreCase) && Current.DairyMilk < 1) result = "Rejected: insufficient dairy milk.";
+            else if (Current.OatMilk < 1) result = "Rejected: insufficient oat portions.";
             else if (Current.EspressoShots < 1) result = "Rejected: insufficient espresso shots.";
             else
             {
-                Current = milkType.Equals("oat", StringComparison.OrdinalIgnoreCase)
-                    ? Current with { OatMilk = Current.OatMilk - 1, EspressoShots = Current.EspressoShots - 1 }
-                    : Current with { DairyMilk = Current.DairyMilk - 1, EspressoShots = Current.EspressoShots - 1 };
+                Current = Current with { OatMilk = Current.OatMilk - 1, EspressoShots = Current.EspressoShots - 1 };
                 fulfilled.Add(customerId);
-                result = $"Accepted: order for {order.Name} fulfilled with {milkType} milk.";
+                result = $"Accepted: order for {order.Name} fulfilled.";
             }
             Events.Add(new(nameof(PlaceOrder), attempt, result));
             return result;
@@ -100,7 +90,7 @@ public static class ContextAssembler
         {
             ContextStrategy.Baseline => "Only always-on core instructions were included.",
             ContextStrategy.All => "All manifest sources were included.",
-            _ => $"Included always-on sources and sources tagged for: {string.Join(", ", scenario.Tags)}."
+            _ => $"Curated core instructions and manifest sources marked for: {string.Join(", ", scenario.Tags)}."
         };
         return new(text, sources, text.Length, reason);
     }
@@ -108,106 +98,63 @@ public static class ContextAssembler
 
 public static class Simulation
 {
-    // Main learning scenario: two oat orders compete for one portion. The request gives
-    // the facts but leaves the shop's prepaid-first policy to the supplied context.
+    // Scenario 1 establishes the basic rule: order time and pickup time point to different customers.
     public static Scenario CreateScenario()
     {
         CustomerOrder[] orders =
         [
-            new("ava-walkin", "Ava", OrderChannel.WalkIn, 850, false, "oat"),
-            new("ben-mobile", "Ben", OrderChannel.PrepaidMobile, 853, false, "oat")
+            new("ava", "Ava", "08:45", "09:15"),
+            new("ben", "Ben", "08:50", "09:00")
         ];
-        const string request = "Two customers each request one oat flat white. There is one oat portion and two espresso shots in stock. " +
-            "Ava arrived first as a walk-in at 08:50. Ben placed a prepaid mobile order at 08:53. " +
-            "Check stock, fulfill the order with higher shop priority, and explain who must wait.";
-        return new("one-oat-portion", request, new(1, 0, 2), orders, ["flat-white", "stock-shortage"],
-            "Only one oat flat white can be made. Ava arrived first, but Ben paid for a mobile order later. The request gives those facts, not the shop's tie-break rule. The shortage policy says prepaid orders go first, so Ben should get the drink.",
-            ["ben-mobile"]);
+        const string request = "Two customers each ordered one oat flat white. There is one oat portion and two espresso shots in stock. " +
+            "Ava placed her order at 08:45 for pickup at 09:15. Ben placed his order at 08:50 for pickup at 09:00. " +
+            "Check stock and decide which order the shop should fulfill first. Explain who must wait.";
+        return new("pickup-promise-shortage", request, new(1, 2), orders, ["flat-white", "stock-shortage"],
+            "Only one oat flat white can be made. Ava ordered first, but Ben was promised the earlier pickup. The shortage policy prioritizes the earliest promised pickup, so Ben gets the drink and Ava waits.",
+            ["ben"]);
     }
 
-    // Scenario 2: a pickup-window exception changes the usual prepaid-first priority.
-    // The model must notice that Leo's walk-in pickup is imminent while Nina's is not.
+    // Scenario 2 mirrors Scenario 1 by changing only the promised pickup times. It checks that
+    // the model follows the pickup-time policy whichever customer's name it favors, rather than
+    // memorizing that Ben was the expected winner in Scenario 1.
     public static Scenario CreateScenario2()
     {
         CustomerOrder[] orders =
         [
-            new("maya-mobile", "Maya", OrderChannel.PrepaidMobile, 840, false, "oat"),
-            new("leo-walkin", "Leo", OrderChannel.WalkIn, 1, false, "oat"),
-            new("nina-mobile", "Nina", OrderChannel.PrepaidMobile, 845, false, "oat"),
-            new("omar-walkin", "Omar", OrderChannel.WalkIn, 2, false, "oat"),
-            new("pippa-walkin", "Pippa", OrderChannel.WalkIn, 3, false, "oat")
+            new("ava", "Ava", "08:45", "09:00"),
+            new("ben", "Ben", "08:50", "09:15")
         ];
-        const string request = "It is 08:50. Five customers request one oat flat white. Stock is two oat portions and five espresso shots. Mobile orders normally have priority, but the shortage policy has a pickup-window exception. Check stock and fulfill orders safely.\n" +
-            "maya-mobile: Maya, prepaid at 08:40, pickup due 08:55.\nleo-walkin: Leo, walk-in arrived first, pickup due 08:58.\nnina-mobile: Nina, prepaid at 08:45, pickup due 09:20.\nomar-walkin: Omar, walk-in arrived second, pickup due 09:30.\npippa-walkin: Pippa, walk-in arrived third, pickup due 09:35.";
-        return new("pickup-window-exception", request, new(2, 0, 5), orders, ["flat-white", "stock-shortage", "pickup-window"],
-            "The hidden exception: a walk-in due for pickup within 10 minutes jumps ahead of a later mobile order. The limited stock forces a choice.",
-            ["maya-mobile", "leo-walkin"]);
+        const string request = "Two customers each ordered one oat flat white. There is one oat portion and two espresso shots in stock. " +
+            "Ava placed her order at 08:45 for pickup at 09:00. Ben placed his order at 08:50 for pickup at 09:15. " +
+            "Check stock and decide which order the shop should fulfill first. Explain who must wait.";
+        return new("pickup-promise-mirror", request, new(1, 2), orders, ["flat-white", "stock-shortage"],
+            "This mirrors Scenario 1: the pickup times are swapped, so Ava now has the earlier promised pickup and should get the one oat flat white. Ben waits.",
+            ["ava"]);
     }
 
-    // Scenario 3: five customers share two oat portions and two dairy portions.
-    // Ruby and Uma approved dairy for their own orders.
-    // Sam and Vic did not approve a substitute.
-    // Taylor has a severe dairy allergy and has not approved a substitute.
-    //
-    // Expected safe fulfillment: Ruby with dairy, Sam with oat, Taylor with oat,
-    // then Uma with dairy. Vic waits.
-    // Using the approved dairy for Ruby and Uma preserves oat for Sam and Taylor.
-    // Dairy is never safe for Taylor, regardless of the other customers' approvals.
+    // Scenario 3 adds one realistic tie-break only when pickup promises are equal. It tests
+    // whether context can supply the reserved-slot rule when order time alone favors Ava.
     public static Scenario CreateScenario3()
     {
         CustomerOrder[] orders =
         [
-            new("ruby", "Ruby", OrderChannel.PrepaidMobile, 900, false, "oat", "dairy"),
-            new("sam", "Sam", OrderChannel.PrepaidMobile, 905, false, "oat"),
-            new("taylor", "Taylor", OrderChannel.WalkIn, 1, true, "oat"),
-            new("uma", "Uma", OrderChannel.WalkIn, 2, false, "oat", "dairy"),
-            new("vic", "Vic", OrderChannel.WalkIn, 3, false, "oat")
+            new("ava", "Ava", "08:45", "09:00"),
+            new("ben", "Ben", "08:50", "09:00")
         ];
-        const string request =
-            "Five customers request oat flat whites.\n" +
-            "Stock: two oat portions, two dairy portions, and five espresso shots.\n" +
-            "Walk-in arrival order: Taylor arrived first, Uma second, and Vic third. " +
-            "After prepaid mobile orders, fulfill walk-ins in this arrival order.\n" +
-            "A recorded approval applies only to that named customer's order.\n" +
-            "Check stock and fulfill as many orders as possible safely.\n" +
-            "ruby: Ruby, prepaid, explicitly approved dairy as a substitute.\n" +
-            "sam: Sam, prepaid, no substitute approved.\n" +
-            "taylor: Taylor, walk-in, severe dairy allergy, no substitute approved.\n" +
-            "uma: Uma, walk-in, explicitly approved dairy as a substitute.\n" +
-            "vic: Vic, walk-in, no substitute approved.";
-        const string crux =
-            "Expected: Ruby uses her approved dairy substitute; Sam uses oat; " +
-            "Taylor uses oat because dairy is unsafe for Taylor; " +
-            "Uma uses her approved dairy substitute; Vic waits.\n" +
-            "Reuse approvals only for the named customer. A severe allergy always rules dairy out.\n" +
-            "Using approved dairy for Ruby and Uma preserves the oat portions for Sam and Taylor.";
-        return new("scoped-substitution-approval", request, new(2, 2, 5), orders, ["flat-white", "stock-shortage", "allergy", "substitution"],
-            crux,
-            ["ruby", "sam", "taylor", "uma"]);
-    }
-
-    // Scenario 4: oat milk, dairy milk, and espresso jointly limit fulfillment. The
-    // model must respect priority while avoiding dairy for Yara, who has an allergy.
-    public static Scenario CreateScenario4()
-    {
-        CustomerOrder[] orders =
-        [
-            new("willow", "Willow", OrderChannel.PrepaidMobile, 910, false, "oat"),
-            new("xavier", "Xavier", OrderChannel.PrepaidMobile, 915, false, "oat"),
-            new("yara", "Yara", OrderChannel.WalkIn, 1, true, "dairy"),
-            new("zane", "Zane", OrderChannel.WalkIn, 2, false, "dairy"),
-            new("ada", "Ada", OrderChannel.WalkIn, 3, false, "oat")
-        ];
-        const string request = "Five orders compete for stock: two oat portions, one dairy portion, and only three espresso shots. Willow and Xavier are prepaid oat orders. Yara is a walk-in who requests dairy and has a severe dairy allergy. Zane is a walk-in dairy order. Ada is a walk-in oat order. Fulfill the highest-priority safe orders; do not serve allergens or exceed any ingredient.";
-        return new("three-ingredient-bottleneck", request, new(2, 1, 3), orders, ["flat-white", "stock-shortage", "allergy", "ingredient-bottleneck"],
-            "Three ingredients constrain the result: espresso and total milk portions are tied bottlenecks, and Yara's requested dairy is unsafe. Respect priority among safe orders, then stop when any ingredient runs out.",
-            ["willow", "xavier", "zane"]);
+        const string request = "Two customers each need one oat flat white. There is one oat portion and two espresso shots in stock. " +
+            "Ava is a walk-in who joined the queue at 08:45 and is waiting at the counter. Ben reserved the 09:00 pickup slot online at 08:50. " +
+            "Both orders have a promised pickup time of 09:00. Check stock, decide which order to fulfill first, and explain who must wait.";
+        return new("pickup-promise-tie-break", request, new(1, 2), orders, ["flat-white", "stock-shortage"],
+            "Both orders have the same promised pickup time, so the shop's tie-break applies. A reserved pickup slot outranks the walk-in queue; Ben gets the one oat flat white and Ava waits.",
+            ["ben"]);
     }
 
     public static Scenario CreateScenario(int number) => number switch
     {
-        1 => CreateScenario(), 2 => CreateScenario2(), 3 => CreateScenario3(), 4 => CreateScenario4(),
-        _ => throw new ArgumentOutOfRangeException(nameof(number), "Choose scenario 1, 2, 3, or 4.")
+        1 => CreateScenario(),
+        2 => CreateScenario2(),
+        3 => CreateScenario3(),
+        _ => throw new ArgumentOutOfRangeException(nameof(number), "Choose scenario 1, 2, or 3.")
     };
 
     public static async Task<RunResult> RunAsync(ContextStrategy strategy, bool live, string baseDirectory)
@@ -241,7 +188,7 @@ public static class Simulation
             var accepted = new List<string>();
             foreach (var order in scenario.Orders.Take(scenario.InitialInventory.OatMilk))
             {
-                var result = tools.PlaceOrder(order.Id, "oat");
+                var result = tools.PlaceOrder(order.Id);
                 if (result.StartsWith("Accepted:", StringComparison.Ordinal)) accepted.Add(order.Id);
             }
             response = $"Scripted decision: fulfilled {string.Join(", ", accepted)} in request-list order. The script does not read or follow the shortage policy.";
@@ -277,7 +224,7 @@ public static class Simulation
     {
         ContextStrategy.Baseline => "Baseline",
         ContextStrategy.All => "All",
-        _ => "Tag-selected"
+        _ => "Curated"
     };
 
     public static string[] GetAcceptedOrderIds(IEnumerable<ToolEvent> events) => events

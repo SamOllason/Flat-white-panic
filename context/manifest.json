@@ -4,12 +4,8 @@
     { "id": "core-instructions", "path": "instructions.md", "version": "1", "tags": [], "alwaysInclude": true },
     { "id": "stock", "path": "stock.md", "version": "2", "tags": ["stock-shortage"] },
     { "id": "recipes", "path": "recipes.md", "version": "1", "tags": ["flat-white"] },
-    { "id": "allergens", "path": "allergens.md", "version": "2", "tags": ["allergy"] },
     { "id": "shortage-policy", "path": "shortage-policy.md", "version": "2", "tags": ["stock-shortage"] },
     { "id": "loyalty", "path": "loyalty.md", "version": "1", "tags": ["loyalty"] },
-    { "id": "pastry-promotions", "path": "pastry-promotions.md", "version": "1", "tags": ["pastry", "promotion"] },
-    { "id": "pickup-window", "path": "pickup-window.md", "version": "1", "tags": ["pickup-window"] },
-    { "id": "substitution", "path": "substitution.md", "version": "1", "tags": ["substitution"] },
-    { "id": "ingredient-bottleneck", "path": "ingredient-bottleneck.md", "version": "1", "tags": ["ingredient-bottleneck"] }
+    { "id": "pastry-promotions", "path": "pastry-promotions.md", "version": "1", "tags": ["pastry", "promotion"] }
   ]
 }
